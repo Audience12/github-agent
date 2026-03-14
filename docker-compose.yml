@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  github-agent:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - LLM_API_KEY=${LLM_API_KEY}
+      - LLM_PROVIDER=${LLM_PROVIDER:-zhipu}
+      - LLM_BASE_URL=${LLM_BASE_URL}
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET:-changeme}
+    restart: unless-stopped
