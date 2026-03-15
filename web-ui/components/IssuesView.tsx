@@ -1,94 +1,167 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { ListTodo, CheckCircle2, Clock, AlertCircle } from 'lucide-react'
+import { Circle, CheckCircle, XCircle, Tag, MessageSquare, ExternalLink, RefreshCw, Loader2 } from 'lucide-react'
 
-interface Task {
-  id: string
-  type: string
-  status: string
-  progress: number
-  stages: any[]
-  createdAt: string
+interface Issue {
+  id: number
+  number: number
+  title: string
+  body: string
+  state: 'open' | 'closed'
+  labels: Array<{ name: string; color: string }>
+  comments: number
+  html_url: string
+  created_at: string
+  user: { login: string }
+}
+
+interface IssuesViewProps {
+  onSelectIssue?: (issue: Issue) => void
 }
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'
 
-export function IssuesView() {
-  const [tasks, setTasks] = useState<Task[]>([])
+export function IssuesView({ onSelectIssue }: IssuesViewProps) {
+  const [issues, setIssues] = useState<Issue[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [owner, setOwner] = useState('Audience12')
+  const [repo, setRepo] = useState('fastapi-demo')
 
   useEffect(() => {
-    fetchTasks()
-    const interval = setInterval(fetchTasks, 5000)
-    return () => clearInterval(interval)
-  }, [])
+    fetchIssues()
+  }, [owner, repo])
 
-  const fetchTasks = async () => {
+  const fetchIssues = async () => {
+    setLoading(true)
+    setError(null)
     try {
-      const res = await fetch(`${API_BASE}/api/tasks`)
+      const res = await fetch(`${API_BASE}/api/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: `List all open issues in ${owner}/${repo}. Return only the JSON data.`
+        }),
+      })
       const data = await res.json()
-      setTasks(data)
-    } catch (error) {
-      console.error('Failed to fetch tasks:', error)
+      
+      // Parse issues from response
+      if (data.result) {
+        try {
+          // Try to extract JSON from the response
+          const jsonMatch = data.result.match(/\[[\s\S]*\]/)
+          if (jsonMatch) {
+            const parsed = JSON.parse(jsonMatch[0])
+            setIssues(Array.isArray(parsed) ? parsed : [])
+          } else {
+            setIssues([])
+          }
+        } catch {
+          setIssues([])
+        }
+      }
+    } catch (err) {
+      setError('Failed to fetch issues')
+      console.error(err)
     } finally {
       setLoading(false)
-    }
-  }
-
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'completed':
-        return <CheckCircle2 className="w-5 h-5 text-green-500" />
-      case 'in_progress':
-        return <Clock className="w-5 h-5 text-blue-500 animate-pulse" />
-      case 'failed':
-        return <AlertCircle className="w-5 h-5 text-red-500" />
-      default:
-        return <ListTodo className="w-5 h-5 text-gray-400" />
     }
   }
 
   return (
     <div className="p-6">
       <div className="flex items-center justify-between mb-6">
-        <h2 className="text-2xl font-bold">任务列表</h2>
-        <button
-          onClick={fetchTasks}
-          className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
-        >
-          刷新
-        </button>
+        <h2 className="text-2xl font-bold">Issues</h2>
+        <div className="flex items-center gap-3">
+          <input
+            type="text"
+            value={owner}
+            onChange={(e) => setOwner(e.target.value)}
+            placeholder="Owner"
+            className="px-3 py-1 border rounded text-sm w-28"
+          />
+          <span className="text-gray-400">/</span>
+          <input
+            type="text"
+            value={repo}
+            onChange={(e) => setRepo(e.target.value)}
+            placeholder="Repo"
+            className="px-3 py-1 border rounded text-sm w-32"
+          />
+          <button
+            onClick={fetchIssues}
+            disabled={loading}
+            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+          >
+            {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <RefreshCw className="w-5 h-5" />}
+          </button>
+        </div>
       </div>
 
+      {error && (
+        <div className="bg-red-50 text-red-600 p-4 rounded-lg mb-4">
+          {error}
+        </div>
+      )}
+
       {loading ? (
-        <p className="text-gray-500">加载中...</p>
-      ) : tasks.length === 0 ? (
-        <p className="text-gray-500">暂无任务</p>
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
+        </div>
+      ) : issues.length === 0 ? (
+        <div className="text-center py-12 text-gray-500">
+          <CheckCircle className="w-12 h-12 mx-auto mb-4 text-green-500" />
+          <p>No open issues! 🎉</p>
+        </div>
       ) : (
-        <div className="space-y-4">
-          {tasks.map((task) => (
+        <div className="space-y-3">
+          {issues.map((issue) => (
             <div
-              key={task.id}
-              className="border rounded-lg p-4 hover:shadow-md transition-shadow"
+              key={issue.id}
+              onClick={() => onSelectIssue?.(issue)}
+              className="border rounded-lg p-4 hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer transition-colors"
             >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  {getStatusIcon(task.status)}
-                  <div>
-                    <h3 className="font-medium">{task.type.toUpperCase()}</h3>
-                    <p className="text-sm text-gray-500">
-                      {new Date(task.createdAt).toLocaleString()}
-                    </p>
+              <div className="flex items-start gap-3">
+                {issue.state === 'open' ? (
+                  <Circle className="w-5 h-5 text-green-500 mt-0.5 flex-shrink-0" />
+                ) : (
+                  <CheckCircle className="w-5 h-5 text-purple-500 mt-0.5 flex-shrink-0" />
+                )}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <a
+                      href={issue.html_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-semibold hover:text-blue-600 flex items-center gap-1"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {issue.title}
+                      <ExternalLink className="w-4 h-4" />
+                    </a>
+                    {issue.labels.map((label) => (
+                      <span
+                        key={label.name}
+                        className="px-2 py-0.5 text-xs rounded-full"
+                        style={{
+                          backgroundColor: `#${label.color}20`,
+                          color: `#${label.color}`,
+                          border: `1px solid #${label.color}40`,
+                        }}
+                      >
+                        {label.name}
+                      </span>
+                    ))}
                   </div>
-                </div>
-                <div className="text-right">
-                  <div className="text-sm font-medium">{task.progress.toFixed(1)}%</div>
-                  <div className="w-32 h-2 bg-gray-200 rounded-full mt-1">
-                    <div
-                      className="h-full bg-blue-500 rounded-full transition-all"
-                      style={{ width: `${task.progress}%` }}
-                    />
+                  <div className="text-sm text-gray-500 mt-1">
+                    #{issue.number} opened {new Date(issue.created_at).toLocaleDateString()} by {issue.user?.login || 'unknown'}
+                    {issue.comments > 0 && (
+                      <span className="ml-3 flex items-center gap-1">
+                        <MessageSquare className="w-4 h-4" />
+                        {issue.comments}
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>
