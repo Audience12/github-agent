@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { GitHubAgent } from './agent/index.js';
 import { createAPIServer } from './api/index.js';
 import { createWebhookHandler } from './webhooks/index.js';

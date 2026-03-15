@@ -1,10 +1,34 @@
 import { Octokit } from '@octokit/rest';
-import { Tool } from '@mariozechner/pi-agent-core';
+import Anthropic from '@anthropic-ai/sdk';
 
-export function createGitHubTools(token: string): Tool[] {
+export interface GitHubTool {
+  name: string;
+  description: string;
+  parameters: Anthropic.Tool['input_schema'];
+  execute: (params: Record<string, unknown>) => Promise<string>;
+}
+
+export class ToolExecutor {
+  private tools: Map<string, GitHubTool> = new Map();
+
+  register(tool: GitHubTool) {
+    this.tools.set(tool.name, tool);
+  }
+
+  async execute(name: string, params: Record<string, unknown>): Promise<string> {
+    const tool = this.tools.get(name);
+    if (!tool) {
+      throw new Error(`Unknown tool: ${name}`);
+    }
+    return tool.execute(params);
+  }
+}
+
+export function createGitHubTools(token: string): { tools: GitHubTool[]; executor: ToolExecutor } {
   const octokit = new Octokit({ auth: token });
-
-  return [
+  const executor = new ToolExecutor();
+  
+  const tools: GitHubTool[] = [
     {
       name: 'get_issue',
       description: 'Get issue details from GitHub repository',
@@ -18,7 +42,11 @@ export function createGitHubTools(token: string): Tool[] {
         required: ['owner', 'repo', 'issue_number'],
       },
       execute: async (params) => {
-        const { data } = await octokit.issues.get(params);
+        const { data } = await octokit.issues.get({
+          owner: params.owner as string,
+          repo: params.repo as string,
+          issue_number: params.issue_number as number,
+        });
         return JSON.stringify(data, null, 2);
       },
     },
@@ -37,7 +65,12 @@ export function createGitHubTools(token: string): Tool[] {
         required: ['owner', 'repo'],
       },
       execute: async (params) => {
-        const { data } = await octokit.issues.listForRepo(params);
+        const { data } = await octokit.issues.listForRepo({
+          owner: params.owner as string,
+          repo: params.repo as string,
+          state: params.state as 'open' | 'closed' | 'all' | undefined,
+          labels: params.labels as string | undefined,
+        });
         return JSON.stringify(data, null, 2);
       },
     },
@@ -55,7 +88,11 @@ export function createGitHubTools(token: string): Tool[] {
         required: ['owner', 'repo', 'pull_number'],
       },
       execute: async (params) => {
-        const { data } = await octokit.pulls.get(params);
+        const { data } = await octokit.pulls.get({
+          owner: params.owner as string,
+          repo: params.repo as string,
+          pull_number: params.pull_number as number,
+        });
         return JSON.stringify(data, null, 2);
       },
     },
@@ -73,7 +110,11 @@ export function createGitHubTools(token: string): Tool[] {
         required: ['owner', 'repo', 'pull_number'],
       },
       execute: async (params) => {
-        const { data } = await octokit.pulls.listFiles(params);
+        const { data } = await octokit.pulls.listFiles({
+          owner: params.owner as string,
+          repo: params.repo as string,
+          pull_number: params.pull_number as number,
+        });
         return JSON.stringify(data, null, 2);
       },
     },
@@ -92,7 +133,12 @@ export function createGitHubTools(token: string): Tool[] {
         required: ['owner', 'repo', 'issue_number', 'body'],
       },
       execute: async (params) => {
-        const { data } = await octokit.issues.createComment(params);
+        const { data } = await octokit.issues.createComment({
+          owner: params.owner as string,
+          repo: params.repo as string,
+          issue_number: params.issue_number as number,
+          body: params.body as string,
+        });
         return JSON.stringify(data, null, 2);
       },
     },
@@ -110,7 +156,11 @@ export function createGitHubTools(token: string): Tool[] {
         required: ['owner', 'repo'],
       },
       execute: async (params) => {
-        const { data } = await octokit.issues.listMilestones(params);
+        const { data } = await octokit.issues.listMilestones({
+          owner: params.owner as string,
+          repo: params.repo as string,
+          state: params.state as 'open' | 'closed' | 'all' | undefined,
+        });
         return JSON.stringify(data, null, 2);
       },
     },
@@ -129,13 +179,72 @@ export function createGitHubTools(token: string): Tool[] {
       },
       execute: async (params) => {
         const response = await octokit.pulls.get({
-          ...params,
+          owner: params.owner as string,
+          repo: params.repo as string,
+          pull_number: params.pull_number as number,
           mediaType: { format: 'diff' },
         });
-        return response.data as string;
+        return String(response.data);
+      },
+    },
+
+    {
+      name: 'create_issue',
+      description: 'Create a new issue in a repository',
+      parameters: {
+        type: 'object',
+        properties: {
+          owner: { type: 'string' },
+          repo: { type: 'string' },
+          title: { type: 'string', description: 'Issue title' },
+          body: { type: 'string', description: 'Issue body in markdown' },
+          labels: { type: 'array', items: { type: 'string' }, description: 'Labels to apply' },
+        },
+        required: ['owner', 'repo', 'title'],
+      },
+      execute: async (params) => {
+        const { data } = await octokit.issues.create({
+          owner: params.owner as string,
+          repo: params.repo as string,
+          title: params.title as string,
+          body: params.body as string | undefined,
+          labels: params.labels as string[] | undefined,
+        });
+        return JSON.stringify(data, null, 2);
+      },
+    },
+
+    {
+      name: 'get_file_content',
+      description: 'Get content of a file in a repository',
+      parameters: {
+        type: 'object',
+        properties: {
+          owner: { type: 'string' },
+          repo: { type: 'string' },
+          path: { type: 'string', description: 'File path' },
+          ref: { type: 'string', description: 'Branch or commit ref' },
+        },
+        required: ['owner', 'repo', 'path'],
+      },
+      execute: async (params) => {
+        const { data } = await octokit.repos.getContent({
+          owner: params.owner as string,
+          repo: params.repo as string,
+          path: params.path as string,
+          ref: params.ref as string | undefined,
+        });
+        
+        if ('content' in data && data.content) {
+          return Buffer.from(data.content, 'base64').toString('utf-8');
+        }
+        return JSON.stringify(data, null, 2);
       },
     },
   ];
-}
 
-export { createGitHubTools };
+  // Register all tools
+  tools.forEach(tool => executor.register(tool));
+
+  return { tools, executor };
+}
